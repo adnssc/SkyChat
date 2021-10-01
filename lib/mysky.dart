@@ -1,16 +1,17 @@
 import 'package:simple_observable/simple_observable.dart';
 import 'package:skynet/skynet.dart';
-import 'package:skynet/mysky.dart';
+
+import 'package:skynet/src/mysky/wrapper.dart';
 import 'package:skynet/dacs.dart';
 
 class MySkyService {
   SkynetClient skynetClient = SkynetClient();
 
-  final mySky = MySky();
+  MySkyWrapper mySky;
 
   ProfileDAC profileDAC;
 
-  FeedDAC feedDAC;
+  // FeedDAC feedDAC;
   // final socialDAC = SocialDAC();
 
   final isLoggedIn = Observable<bool>(initialValue: null);
@@ -26,7 +27,16 @@ class MySkyService {
 
     profileDAC = ProfileDAC(skynetClient);
 
-    feedDAC = FeedDAC(skynetClient);
+    // feedDAC = FeedDAC(skynetClient);
+
+    await mySky.load(
+      dataDomain,
+      options: {},
+    );
+
+    print('loaded MySky');
+
+/*     mySky = MySkyWrapper(skynetClient);
 
     await mySky.load(
       dataDomain,
@@ -35,7 +45,7 @@ class MySkyService {
 
     print('loaded MySky');
 
-    await mySky.loadDACs([/* socialDAC */]);
+    await mySky.loadDACs([/* socialDAC */]); */
 
     print('loaded DACs');
 
