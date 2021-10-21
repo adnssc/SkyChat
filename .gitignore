@@ -4,6 +4,7 @@
 
 # Conventional directory for build outputs
 build/
+public/
 
 # Directory created by dartdoc
 doc/api/

@@ -27,6 +27,8 @@ class MySkyService {
 
     profileDAC = ProfileDAC(skynetClient);
 
+    mySky = MySkyWrapper(skynetClient);
+
     // feedDAC = FeedDAC(skynetClient);
 
     await mySky.load(
