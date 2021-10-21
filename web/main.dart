@@ -3,6 +3,9 @@ import 'dart:html';
 import 'dart:js';
 import 'package:collection/collection.dart';
 import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl_browser.dart';
+
 import 'package:markdown/markdown.dart' as md;
 
 import 'package:skychat/js.dart';
@@ -12,9 +15,17 @@ import 'package:skynet/skynet.dart';
 import 'package:skynet/dacs.dart';
 import 'package:string_validator/string_validator.dart';
 
-final joinedServerIds = [
-  'a8e04ee82f2120b90cb234df62bd3181517a201ef4944b03277b162cc16b3ce9'
-];
+/// Send join voice channel event using messages.json
+/// chat server adds peer information and join event to channel message log
+///
+
+/* var ICE_SERVERS = [
+  {'urls': "stun:stun.l.google.com:19302"}
+]; */
+
+List<String> joinedServerIds;
+
+// TODO topic or subject support
 
 final servers = <String, Server>{};
 
@@ -32,19 +43,76 @@ void skychatClick(String type, [String id]) {
     RenderChannels(id);
   } else if (type == 'channel') {
     print('select channel $id');
+    // TODO Check if it is voice channel and then join
+/*     if (id == 'random') {
+      print('join voice channel');
+      initAudio();
+      currentVoiceChannelId = id;
+      currentVoiceServerId = currentServerData?.id;
+      sendTextMessageToChannel(
+        currentVoiceServerId,
+        currentVoiceChannelId,
+        json.encode(
+          {
+            'type': 'join',
+          },
+        ),
+      );
+    } */
     RenderMessages(id);
   } else if (type == 'login') {
     mySky.requestLoginAccess();
   }
 }
 
+String currentVoiceServerId;
+String currentVoiceChannelId;
+
 Map<String, dynamic> UI;
+
+Future<void> sendTextMessageToChannel(
+    String serverId, String channelId, String message) async {
+  final path = '${mySky.dataDomain}/${serverId}/messages.json';
+
+  final res = await mySky.skynetClient.file.getJSONWithRevision(
+    mySky.userId,
+    path,
+  );
+
+  Map data;
+
+  if (res.data == null) {
+    data = {'messages': []};
+  } else {
+    data = res.data;
+  }
+
+  final int lastIndex =
+      ((data['messages'] as List).lastOrNull ?? {})['index'] ?? 0;
+
+  data['messages'].add({
+    'content': {
+      'text': message,
+    },
+    'channelName': channelId,
+    'index': lastIndex + 1,
+  });
+
+  while (data['messages'].length > 8) {
+    (data['messages'] as List).removeAt(0);
+  }
+
+  await mySky.mySky.setJSON(path, data, res.revision + 1);
+
+  ws.notify(SkynetUser.fromId(mySky.userId), path);
+}
 
 Future<void> sendMessage(String message) async {
   if ((querySelector('#msgField') as InputElement).disabled) return;
 
   print('sendMessage');
   (querySelector('#msgField') as InputElement).disabled = true;
+
   final path = '${mySky.dataDomain}/${currentServerData?.id}/messages.json';
 
   final res = await mySky.skynetClient.file.getJSONWithRevision(
@@ -106,7 +174,7 @@ Future<void> sendMessage(String message) async {
 
   print('[send] setJSON');
 
-  await mySky.mySky.setJSON(path, data); // TODO Set revision here
+  await mySky.mySky.setJSON(path, data, res.revision + 1);
 
   print('[send] notify');
 
@@ -115,14 +183,305 @@ Future<void> sendMessage(String message) async {
   (querySelector('#msgField') as InputElement).value = '';
 
   (querySelector('#msgField') as InputElement).disabled = false;
+  (querySelector('#msgField') as InputElement).focus();
 }
 
 SkynetUser publicUser;
 
 SkyDBoverWS ws;
 
+MediaStream local_media_stream;
+
+/***********************/
+/** Local media stuff **/
+/***********************/
+/* Future<bool> setup_local_media() async {
+  if (local_media_stream != null) {
+    /* ie, if we've already been initialized */
+    // if (callback != null) callback();
+    return true;
+  }
+  /* Ask user for permission to use the computers microphone and/or camera, 
+                 * attach it to an <audio> or <video> tag if they give us access. */
+  print("Requesting access to local audio / video inputs");
+
+  // window.navigator.getUserMedia()
+
+  final attachMediaStream = (element, stream) {
+    print('DEPRECATED, attachMediaStream will soon be removed.');
+    element.srcObject = stream;
+  };
+
+  final USE_VIDEO = false;
+
+  final stream = await window.navigator.mediaDevices.getUserMedia({
+    "audio": true,
+    "video": USE_VIDEO,
+  });
+
+  /* user accepted access to a/v */
+  print("Access granted to audio/video");
+  local_media_stream = stream;
+  AudioElement local_media =
+      document.createElement(USE_VIDEO ? "video" : 'audio');
+  local_media.setAttribute("autoplay", "autoplay");
+  local_media.setAttribute(
+      "muted", "true"); /* always mute ourselves by default */
+  local_media.setAttribute("controls", "");
+  document.querySelector('body').append(local_media);
+  local_media.srcObject = stream;
+  // attachMediaStream(local_media[0], stream);
+
+  return true;
+
+  /* .catch(function() { /* user denied access to a/v */
+                        console.log("Access denied for audio/video");
+                        alert("You chose not to provide access to the camera/microphone, demo will not work.");
+                        if (errorback) errorback();
+                    }) */
+} */
+
+void initAudio() async {
+  /* final res = await setup_local_media(
+      /* once the user has given us access to their
+                         * microphone/camcorder, join the channel and start peering up */
+      // join_chat_channel(DEFAULT_CHANNEL, {'whatever-you-want-here': 'stuff'});
+      );
+  print(res); */
+  // ! --
+  /*  var signaling_socket = null;   /* our socket.io connection to our webserver */
+            var local_media_stream = null; /* our own microphone / webcam */
+            var peers = {};                /* keep track of our peer connections, indexed by peer_id (aka socket.io id) */
+            var peer_media_elements = {};  /* keep track of our <video>/<audio> tags, indexed by peer_id */
+
+            function init() {
+                console.log("Connecting to signaling server");
+                signaling_socket = io(SIGNALING_SERVER);
+                signaling_socket = io();
+
+                signaling_socket.on('connect', function() {
+                    console.log("Connected to signaling server");
+                    setup_local_media(function() {
+                        /* once the user has given us access to their
+                         * microphone/camcorder, join the channel and start peering up */
+                        join_chat_channel(DEFAULT_CHANNEL, {'whatever-you-want-here': 'stuff'});
+                    });
+                });
+                signaling_socket.on('disconnect', function() {
+                    console.log("Disconnected from signaling server");
+                    /* Tear down all of our peer connections and remove all the
+                     * media divs when we disconnect */
+                    for (peer_id in peer_media_elements) {
+                        peer_media_elements[peer_id].remove();
+                    }
+                    for (peer_id in peers) {
+                        peers[peer_id].close();
+                    }
+
+                    peers = {};
+                    peer_media_elements = {};
+                }); */
+  /*      function join_chat_channel(channel, userdata) {
+                    signaling_socket.emit('join', {"channel": channel, "userdata": userdata});
+                }
+                function part_chat_channel(channel) {
+                    signaling_socket.emit('part', channel);
+                }
+ */
+/* 
+                /** 
+                * When we join a group, our signaling server will send out 'addPeer' events to each pair
+                * of users in the group (creating a fully-connected graph of users, ie if there are 6 people
+                * in the channel you will connect directly to the other 5, so there will be a total of 15 
+                * connections in the network). 
+                */
+                signaling_socket.on('addPeer', function(config) {
+                    console.log('Signaling server said to add peer:', config);
+                    var peer_id = config.peer_id;
+                    if (peer_id in peers) {
+                        /* This could happen if the user joins multiple channels where the other peer is also in. */
+                        console.log("Already connected to peer ", peer_id);
+                        return;
+                    }
+                    var peer_connection = new RTCPeerConnection(
+                        {"iceServers": ICE_SERVERS},
+                        {"optional": [{"DtlsSrtpKeyAgreement": true}]} /* this will no longer be needed by chrome
+                                                                        * eventually (supposedly), but is necessary 
+                                                                        * for now to get firefox to talk to chrome */
+                    );
+                    peers[peer_id] = peer_connection;
+
+                    peer_connection.onicecandidate = function(event) {
+                        if (event.candidate) {
+                            signaling_socket.emit('relayICECandidate', {
+                                'peer_id': peer_id, 
+                                'ice_candidate': {
+                                    'sdpMLineIndex': event.candidate.sdpMLineIndex,
+                                    'candidate': event.candidate.candidate
+                                }
+                            });
+                        }
+                    }
+                    peer_connection.ontrack = function(event) {
+                        console.log("ontrack", event);
+                        var remote_media = USE_VIDEO ? $("<video>") : $("<audio>");
+                        remote_media.attr("autoplay", "autoplay");
+                        if (MUTE_AUDIO_BY_DEFAULT) {
+                            remote_media.attr("muted", "true");
+                        }
+                        remote_media.attr("controls", "");
+                        peer_media_elements[peer_id] = remote_media;
+                        $('body').append(remote_media);
+                        attachMediaStream(remote_media[0], event.streams[0]);
+                    }
+
+                    /* Add our local stream */
+                    peer_connection.addStream(local_media_stream);
+
+                    /* Only one side of the peer connection should create the
+                     * offer, the signaling server picks one to be the offerer. 
+                     * The other user will get a 'sessionDescription' event and will
+                     * create an offer, then send back an answer 'sessionDescription' to us
+                     */
+                    if (config.should_create_offer) {
+                        console.log("Creating RTC offer to ", peer_id);
+                        peer_connection.createOffer(
+                            function (local_description) { 
+                                console.log("Local offer description is: ", local_description);
+                                peer_connection.setLocalDescription(local_description,
+                                    function() { 
+                                        signaling_socket.emit('relaySessionDescription', 
+                                            {'peer_id': peer_id, 'session_description': local_description});
+                                        console.log("Offer setLocalDescription succeeded"); 
+                                    },
+                                    function() { Alert("Offer setLocalDescription failed!"); }
+                                );
+                            },
+                            function (error) {
+                                console.log("Error sending offer: ", error);
+                            });
+                    }
+                });
+
+
+                /** 
+                 * Peers exchange session descriptions which contains information
+                 * about their audio / video settings and that sort of stuff. First
+                 * the 'offerer' sends a description to the 'answerer' (with type
+                 * "offer"), then the answerer sends one back (with type "answer").  
+                 */
+                signaling_socket.on('sessionDescription', function(config) {
+                    console.log('Remote description received: ', config);
+                    var peer_id = config.peer_id;
+                    var peer = peers[peer_id];
+                    var remote_description = config.session_description;
+                    console.log(config.session_description);
+
+                    var desc = new RTCSessionDescription(remote_description);
+                    var stuff = peer.setRemoteDescription(desc, 
+                        function() {
+                            console.log("setRemoteDescription succeeded");
+                            if (remote_description.type == "offer") {
+                                console.log("Creating answer");
+                                peer.createAnswer(
+                                    function(local_description) {
+                                        console.log("Answer description is: ", local_description);
+                                        peer.setLocalDescription(local_description,
+                                            function() { 
+                                                signaling_socket.emit('relaySessionDescription', 
+                                                    {'peer_id': peer_id, 'session_description': local_description});
+                                                console.log("Answer setLocalDescription succeeded");
+                                            },
+                                            function() { Alert("Answer setLocalDescription failed!"); }
+                                        );
+                                    },
+                                    function(error) {
+                                        console.log("Error creating answer: ", error);
+                                        console.log(peer);
+                                    });
+                            }
+                        },
+                        function(error) {
+                            console.log("setRemoteDescription error: ", error);
+                        }
+                    );
+                    console.log("Description Object: ", desc);
+
+                });
+
+                /**
+                 * The offerer will send a number of ICE Candidate blobs to the answerer so they 
+                 * can begin trying to find the best path to one another on the net.
+                 */
+                signaling_socket.on('iceCandidate', function(config) {
+                    var peer = peers[config.peer_id];
+                    var ice_candidate = config.ice_candidate;
+                    peer.addIceCandidate(new RTCIceCandidate(ice_candidate));
+                });
+
+
+                /**
+                 * When a user leaves a channel (or is disconnected from the
+                 * signaling server) everyone will recieve a 'removePeer' message
+                 * telling them to trash the media channels they have open for those
+                 * that peer. If it was this client that left a channel, they'll also
+                 * receive the removePeers. If this client was disconnected, they
+                 * wont receive removePeers, but rather the
+                 * signaling_socket.on('disconnect') code will kick in and tear down
+                 * all the peer sessions.
+                 */
+                signaling_socket.on('removePeer', function(config) {
+                    console.log('Signaling server said to remove peer:', config);
+                    var peer_id = config.peer_id;
+                    if (peer_id in peer_media_elements) {
+                        peer_media_elements[peer_id].remove();
+                    }
+                    if (peer_id in peers) {
+                        peers[peer_id].close();
+                    }
+
+                    delete peers[peer_id];
+                    delete peer_media_elements[config.peer_id];
+                });
+            }
+
+*/
+}
+
+bool minimalModeEnabled = false;
+String minimalModeServerId;
+String minimalModeChannelName;
+
 bool isRunningInIframe = false;
+void insertAtCursor(InputElement myField, String myValue) {
+  //MOZILLA and others
+  if (myField.selectionStart != null) {
+    var startPos = myField.selectionStart;
+    var endPos = myField.selectionEnd;
+    myField.value = myField.value.substring(0, startPos) +
+        myValue +
+        myField.value.substring(endPos, myField.value.length);
+  } else {
+    myField.value += myValue;
+  }
+}
+
 void main() async {
+  document.querySelector('emoji-picker').addEventListener('emoji-click',
+      (dynamic event) {
+    final InputElement inputForm = document.querySelector("#msgField");
+    if (!inputForm.disabled) {
+      insertAtCursor(inputForm, event.detail['unicode']);
+    }
+  });
+
+  Intl.systemLocale = await findSystemLocale();
+  // print(Intl.systemLocale);
+  initializeDateFormatting(
+    Intl.systemLocale, //window.navigator.languages.firstOrNull ?? 'en',
+    null,
+  );
+
   isRunningInIframe = window.self != window.top;
 
   var host = window.location.hostname.split('.hns.').last;
@@ -132,6 +491,24 @@ void main() async {
   }
 
   ws = SkyDBoverWS(mySky.skynetClient);
+  // http://localhost:8888/#minimal/a8e04ee82f2120b90cb234df62bd3181517a201ef4944b03277b162cc16b3ce9#info
+
+  var hash = window.location.hash;
+  if (hash.startsWith('#')) hash = hash.substring(1);
+
+  final parts = hash.split('/');
+  print(parts);
+
+  if (parts[0] == 'minimal') {
+    document.querySelector('content').style
+      ..left = '0'
+      ..width = '100%';
+    document.querySelector('.memberCount').style.display = 'none';
+    minimalModeEnabled = true;
+
+    minimalModeServerId = parts[1];
+    minimalModeChannelName = parts[2];
+  }
 
   ws.onConnectionStateChange = () {
     final cs = ws.connectionState;
@@ -228,6 +605,15 @@ void main() async {
 
 void startSkyChat() async {
   // TODO Load joined server list from MySky
+  if (minimalModeEnabled) {
+    joinedServerIds = [minimalModeServerId];
+  } else {
+    joinedServerIds ??= [
+      'a8e04ee82f2120b90cb234df62bd3181517a201ef4944b03277b162cc16b3ce9',
+      // 'a18e9c530e3e30164b26ab0ae40b4cd954936bb2cd52dba444be4422d54734d6',
+    ];
+  }
+
   await Future.wait(<Future>[
     for (final serverId in joinedServerIds)
       () async {
@@ -241,12 +627,24 @@ void startSkyChat() async {
     print(server.memberList);
     subscribeToMemberList(server.id, server.memberList);
 
-    for (final channelName in server.channels.keys) {
+    final relevantChannels = <String>[];
+
+    if (minimalModeEnabled) {
+      relevantChannels.add(minimalModeChannelName);
+    } else {
+      relevantChannels.addAll(server.channels.keys);
+    }
+
+    for (final channelName in relevantChannels) {
       subscribeToChannel(server.id, channelName, server.channels[channelName]);
     }
   }
-
   RenderServers();
+
+  if (minimalModeEnabled) {
+    skychatClick('server', minimalModeServerId);
+    skychatClick('channel', minimalModeChannelName);
+  }
 }
 
 final messagesDB = <String, List<Post>>{};
@@ -558,6 +956,7 @@ void RenderInputField() {
   if (isMember) {
     inputForm.disabled = false;
     inputForm.placeholder = "Say something...";
+    inputForm.focus();
   } else {
     inputForm.value = '';
     inputForm.disabled = true;
@@ -660,9 +1059,16 @@ void insertMessage(Post post, [bool isDraft = false]) {
 
     if (post.ts != null) {
       final dateTimeField = document.createElement('span');
+      final dt = DateTime.fromMillisecondsSinceEpoch(post.ts);
+      final now = DateTime.now();
+      var str = '';
 
-      dateTimeField.innerText =
-          ' ${DateFormat.Hm().format(DateTime.fromMillisecondsSinceEpoch(post.ts))}';
+      str = ' ${DateFormat.Hm().format(dt)}';
+      if (dt.isBefore(now.subtract(Duration(
+          hours: now.hour, minutes: now.minute, seconds: now.second)))) {
+        str += ', ${DateFormat.MMMMEEEEd().format(dt)}';
+      }
+      dateTimeField.innerText = str;
 
       baseElem.append(dateTimeField);
     }
